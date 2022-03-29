@@ -1,134 +1,139 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:overlay_support/overlay_support.dart';
 
-void main() async {
-  runApp(MyApp());
+import 'model/Notification.dart';
+import 'notifcations/badge.dart';
+import 'notifcations/card.dart';
+
+void main() {
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({Key? key}) : super(key: key);
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Notify',
-      theme: ThemeData(
-        primarySwatch: Colors.deepPurple,
+    return OverlaySupport(
+      child: MaterialApp(
+        title: 'Notify',
+        theme: ThemeData(
+          primarySwatch: Colors.deepPurple,
+        ),
+        debugShowCheckedModeBanner: false,
+        home: const MyHomePage(
+          title: 'Notification',
+        ),
       ),
-      debugShowCheckedModeBanner: false,
-      home: HomePage(),
     );
   }
 }
 
-class PushNotification {
-  PushNotification({
-    this.title,
-    this.body,
-    this.dataTitle,
-    this.dataBody,
-  });
+class MyHomePage extends StatefulWidget {
+  const MyHomePage({Key? key, required this.title}) : super(key: key);
 
-  String? title;
-  String? body;
-  String? dataTitle;
-  String? dataBody;
-}
+  final String title;
 
-class HomePage extends StatefulWidget {
   @override
-  _HomePageState createState() => _HomePageState();
+  State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _HomePageState extends State {
-  late int _totalNotifications;
-  late final FirebaseMessaging _messaging;
-  PushNotification? _notificationInfo;
+Future _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  print("MessageID: ${message.messageId}");
+}
 
-  void registerNotification() async {
-    // 1. Initialize the Firebase app
-    await Firebase.initializeApp();
-
-    // FirebaseMessaging.instance.getToken().then((token) {
-    //   print('FCM TOKEN:');
-    //   print(token);
-    //   print('END');
-    // }).catchError((err) {
-    //   print(err);
-    // }).whenComplete(() => print("COMPLETE !!!"));
-
-    String? token = await FirebaseMessaging.instance.getToken();
-    print(token);
-  }
+class _MyHomePageState extends State<MyHomePage> {
+  List<Notification> _listNotification  = [];
 
   @override
   void initState() {
-    _totalNotifications = 0;
     registerNotification();
-
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      PushNotification notification = PushNotification(
-        title: message.notification?.title,
-        body: message.notification?.body,
-      );
-      setState(() {
-        _notificationInfo = notification;
-        _totalNotifications++;
-      });
-    });
 
     super.initState();
   }
 
+  void registerNotification() async {
+    await Firebase.initializeApp();
+
+    FirebaseMessaging.instance.getToken().then((token) {
+      print('FCM TOKEN: ${token}');
+    });
+
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+    FirebaseMessaging.onMessage.listen((RemoteMessage event) {
+      print("Receive Notification");
+      print(event.notification!.title);
+      print(event.notification!.body);
+      Notification newNotification = Notification(
+        title: event.notification?.title,
+        body: event.notification?.body,
+      );
+      setState(() {
+        _listNotification = List.from(_listNotification)
+          ..add(newNotification);
+      });
+
+
+      showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: Text(event.notification!.title.toString()),
+              content: Text(event.notification!.body!),
+              actions: [
+                TextButton(
+                  child: Text("Done"),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                )
+              ],
+            );
+          });
+    });
+
+
+  }
+
+  void removeItem(var index){
+    List<Notification> _newList = _listNotification;
+    var n = _newList.removeAt(index);
+    // print(n.title);
+    setState(() {
+      _listNotification = _newList;
+    });
+  }
+
+  void removeItemAll(){
+    print("Clear Notification");
+    setState(() {
+      _listNotification = [];
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notify'),
-      ),
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text(
-            'App for capturing Firebase Push Notifications',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.black,
-              fontSize: 20,
-            ),
-          ),
-          const SizedBox(height: 16.0),
-          NotificationBadge(totalNotifications: _totalNotifications),
-          const SizedBox(height: 16.0),
-          // TODO: add the notification text here
-        ],
-      ),
-    );
-  }
-}
 
-class NotificationBadge extends StatelessWidget {
-  final int totalNotifications;
-
-  // ignore: use_key_in_widget_constructors
-  const NotificationBadge({required this.totalNotifications});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 40.0,
-      height: 40.0,
-      decoration: const BoxDecoration(
-        color: Colors.red,
-        shape: BoxShape.circle,
+        title: Text(widget.title),
       ),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Text(
-            '$totalNotifications',
-            style: const TextStyle(color: Colors.white, fontSize: 20),
-          ),
-        ),
+      body: ListView.separated(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.all(8),
+        itemCount: _listNotification.length,
+        itemBuilder: (BuildContext context, int index) {
+          return CardNotification(_listNotification[index].title, _listNotification[index].body, index, removeItem);
+        },
+        separatorBuilder: (BuildContext context, int index) => const Divider(),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => removeItemAll(),
+        backgroundColor: Colors.red,
+        child: const Icon(Icons.remove_circle_outline),
       ),
     );
   }
